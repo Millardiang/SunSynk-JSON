@@ -8,6 +8,7 @@ def gettoken():
     import base64
     import json
     import requests
+    import logging
     from io import StringIO
     from cryptography.hazmat.primitives.asymmetric.padding import PKCS1v15
     from cryptography.hazmat.primitives.serialization import load_pem_public_key
