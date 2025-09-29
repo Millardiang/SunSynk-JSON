@@ -5,9 +5,6 @@ SolarSynkV3 daemon — fetches inverter data via sunsynk_get functions,
 writes log + JSON, publishes JSON to MQTT broker (retained),
 and repeats every loop_time seconds (default 300).
 
-Configurable paths, MQTT, outputs, and loop interval are all in options.json.
-The path to that file is itself defined inside options.json as "options_file".
-
 (c) 2025 Ian Millard
 GNU GPL v3
 """
@@ -35,15 +32,18 @@ from sunsynk_get import (
 ansi_escape = re.compile(r'\x1B\[[0-?]*[ -/]*[@-~]')
 
 def strip_ansi(text):
+    """Remove ANSI escape codes (colours, bold, etc.)."""
     return ansi_escape.sub('', text)
 
 def to_camel_case(s: str) -> str:
+    """Convert string to camelCase."""
     parts = re.split(r'[\s_/]+', s.strip())
     if not parts:
         return s
     return parts[0].lower() + ''.join(word.capitalize() for word in parts[1:])
 
 def normalise_key(key: str, section: str) -> str:
+    """Normalise key, camelCase, prefix with section."""
     prefixes = [
         "Inverter Setting ", "Inverter ",
         "PV ", "Grid ", "Battery ",
@@ -58,20 +58,27 @@ def normalise_key(key: str, section: str) -> str:
     return section_prefix + key[0].upper() + key[1:]
 
 def capture_and_parse(func, section_name, *args):
+    """
+    Run a sunsynk_get function that prints output.
+    Capture prints, strip ANSI codes, parse into a flat dict.
+    """
     buf = StringIO()
     with contextlib.redirect_stdout(buf):
         func(*args)
     raw_output = buf.getvalue()
+
     clean_output = strip_ansi(raw_output)
 
     parsed = {}
     log_lines = []
+
     for line in clean_output.splitlines():
         log_lines.append(line)
         if ":" in line:
             k, v = line.split(":", 1)
             key = normalise_key(k.strip(), section_name)
             value = v.strip()
+
             if value.startswith("[") and value.endswith("]"):
                 try:
                     value = ast.literal_eval(value)
@@ -88,7 +95,9 @@ def capture_and_parse(func, section_name, *args):
                     value = float(value)
                 except ValueError:
                     pass
+
             parsed[key] = value
+
     return parsed, log_lines
 
 # --- Main fetch run ---
@@ -122,38 +131,61 @@ def main(cfg):
             if not serial.strip():
                 continue
             print(f"=== Inverter {serial} ===")
+
             try:
                 data, out = capture_and_parse(GetInverterInfo, "inverter", token, serial)
-                flat_all.update(data); log_lines.extend(out); print("  ✔ InverterInfo fetched")
+                flat_all.update(data); log_lines.extend(out)
+                print("  ✔ InverterInfo fetched")
+
                 data, out = capture_and_parse(GetPvData, "pv", token, serial)
-                flat_all.update(data); log_lines.extend(out); print("  ✔ PVData fetched")
+                flat_all.update(data); log_lines.extend(out)
+                print("  ✔ PVData fetched")
+
                 data, out = capture_and_parse(GetGridData, "grid", token, serial)
-                flat_all.update(data); log_lines.extend(out); print("  ✔ GridData fetched")
+                flat_all.update(data); log_lines.extend(out)
+                print("  ✔ GridData fetched")
+
                 data, out = capture_and_parse(GetBatteryData, "battery", token, serial)
-                flat_all.update(data); log_lines.extend(out); print("  ✔ BatteryData fetched")
+                flat_all.update(data); log_lines.extend(out)
+                print("  ✔ BatteryData fetched")
+
                 data, out = capture_and_parse(GetLoadData, "load", token, serial)
-                flat_all.update(data); log_lines.extend(out); print("  ✔ LoadData fetched")
+                flat_all.update(data); log_lines.extend(out)
+                print("  ✔ LoadData fetched")
+
                 data, out = capture_and_parse(GetOutputData, "output", token, serial)
-                flat_all.update(data); log_lines.extend(out); print("  ✔ OutputData fetched")
+                flat_all.update(data); log_lines.extend(out)
+                print("  ✔ OutputData fetched")
+
                 data, out = capture_and_parse(GetDCACTemp, "dcac", token, serial)
-                flat_all.update(data); log_lines.extend(out); print("  ✔ DCACTemp fetched")
+                flat_all.update(data); log_lines.extend(out)
+                print("  ✔ DCACTemp fetched")
+
                 data, out = capture_and_parse(GetInverterSettingsData, "inverterSettings", token, serial)
-                flat_all.update(data); log_lines.extend(out); print("  ✔ InverterSettings fetched")
+                flat_all.update(data); log_lines.extend(out)
+                print("  ✔ InverterSettings fetched")
+
             except Exception as e:
                 err = f"❌ Error while fetching data for {serial}: {e}"
                 log_lines.append(err)
                 print(err)
                 traceback.print_exc()
 
-        wrapped = {"timestamp": datetime.now(timezone.utc).isoformat(), **flat_all}
+        wrapped = {
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            **flat_all
+        }
 
+        # Ensure output dirs exist safely
         out_txt_dir = os.path.dirname(output_txt)
         if out_txt_dir:
             os.makedirs(out_txt_dir, exist_ok=True)
+
         out_json_dir = os.path.dirname(output_json)
         if out_json_dir:
             os.makedirs(out_json_dir, exist_ok=True)
 
+        # Write outputs
         with open(output_txt, "w", encoding="utf-8") as lf:
             lf.write("\n".join(log_lines))
         print(f"💾 Wrote log to {output_txt}")
@@ -162,6 +194,7 @@ def main(cfg):
             json.dump(wrapped, jf, indent=2)
         print(f"💾 Wrote JSON to {output_json}")
 
+        # Publish to MQTT
         try:
             client = mqtt.Client()
             client.connect(mqtt_broker, mqtt_port, 60)
@@ -179,32 +212,22 @@ def main(cfg):
         print(err)
         traceback.print_exc()
 
-# --- Daemon loop with config reload ---
+# --- Daemon loop with configurable interval ---
 
 if __name__ == "__main__":
-    # Initial load of options.json
-    default_options = "./data/options.json"
-    try:
-        with open(default_options) as f:
+    # Load config once to get loop_time
+    config_file = "/var/www/html/divumwx/jsondata/options.json"
+    if os.path.isfile(config_file):
+        with open(config_file) as f:
             cfg = json.load(f)
-    except Exception:
+    else:
         cfg = {}
 
-    options_file = cfg.get("options_file", default_options)
     loop_time = int(cfg.get("loop_time", 300))
     print(f"⏱ Loop interval set to {loop_time} seconds")
-    print(f"⚙️ Options file: {options_file}")
 
     while True:
         try:
-            # Reload config each cycle
-            if os.path.isfile(options_file):
-                with open(options_file) as f:
-                    cfg = json.load(f)
-            else:
-                cfg = {}
-            loop_time = int(cfg.get("loop_time", 300))
-
             main(cfg)
             print(f"✅ Cycle finished at {datetime.now(timezone.utc).isoformat()}")
         except Exception as e:
