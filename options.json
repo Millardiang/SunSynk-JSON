@@ -2,5 +2,12 @@
   "API_Server": "api.sunsynk.net",
   "sunsynk_user": "ianmillard@icloud.com",
   "sunsynk_pass": "9zQusGdFb7G5oDt",
-  "inverter_serial": "2212176166"
+  "inverter_serial": "2212176166",
+  "mqtt_broker": "192.168.1.148",
+  "mqtt_port": 1883,
+  "mqtt_topic": "sunsynk",
+  "output_txt": "/tmp/sunsynk/sunsynk_text_dump.txt",
+  "output_json": "/var/www/html/divumwx/jsondata/sunsynk.json",
+  "loop_time": 300,
+  "options_file": "/home/divum5/weewx-data/bin/user/sunsynk/data/options.json"
 }
