@@ -2,10 +2,11 @@
 # -*- coding: utf-8 -*-
 """
 SolarSynkV3 daemon — fetches inverter data via sunsynk_get functions,
-writes log to sunsynk_text_dump.txt,
-writes structured flat JSON to sunsynk_from_text.json,
-publishes JSON to MQTT broker,
-and repeats every 300 seconds.
+writes log + JSON, publishes JSON to MQTT broker (retained),
+and repeats every loop_time seconds (default 300).
+
+Configurable paths, MQTT, outputs, and loop interval are all in options.json.
+The path to that file is itself defined inside options.json as "options_file".
 
 (c) 2025 Ian Millard
 GNU GPL v3
@@ -21,7 +22,7 @@ import contextlib
 import re
 import ast
 
-import paho.mqtt.client as mqtt
+import paho.mqtt.client as mqtt  # safe classic import
 
 from sunsynk_get import (
     gettoken,
@@ -34,18 +35,15 @@ from sunsynk_get import (
 ansi_escape = re.compile(r'\x1B\[[0-?]*[ -/]*[@-~]')
 
 def strip_ansi(text):
-    """Remove ANSI escape codes (colours, bold, etc.)."""
     return ansi_escape.sub('', text)
 
 def to_camel_case(s: str) -> str:
-    """Convert string to camelCase."""
     parts = re.split(r'[\s_/]+', s.strip())
     if not parts:
         return s
     return parts[0].lower() + ''.join(word.capitalize() for word in parts[1:])
 
 def normalise_key(key: str, section: str) -> str:
-    """Normalise key, camelCase, prefix with section."""
     prefixes = [
         "Inverter Setting ", "Inverter ",
         "PV ", "Grid ", "Battery ",
@@ -60,145 +58,155 @@ def normalise_key(key: str, section: str) -> str:
     return section_prefix + key[0].upper() + key[1:]
 
 def capture_and_parse(func, section_name, *args):
-    """
-    Run a sunsynk_get function that prints output.
-    Capture prints, strip ANSI codes, parse into a flat dict.
-    """
     buf = StringIO()
     with contextlib.redirect_stdout(buf):
-        func(*args)  # call original function
+        func(*args)
     raw_output = buf.getvalue()
-
     clean_output = strip_ansi(raw_output)
 
     parsed = {}
     log_lines = []
-
     for line in clean_output.splitlines():
         log_lines.append(line)
         if ":" in line:
             k, v = line.split(":", 1)
             key = normalise_key(k.strip(), section_name)
             value = v.strip()
-
-            # Try list parsing
             if value.startswith("[") and value.endswith("]"):
                 try:
                     value = ast.literal_eval(value)
                 except Exception:
                     pass
-            # Booleans
             elif value.lower() in ("true", "false"):
                 value = value.lower() == "true"
-            # None/null
             elif value in ("None", "null"):
                 value = None
-            # Int
             elif re.fullmatch(r"-?\d+", value):
                 value = int(value)
-            # Float
             else:
                 try:
                     value = float(value)
                 except ValueError:
-                    pass  # leave as string
-
+                    pass
             parsed[key] = value
-
     return parsed, log_lines
 
 # --- Main fetch run ---
 
-def main():
+def main(cfg):
     log_lines = []
     flat_all = {}
 
     try:
-        config_file = "./data/options.json"
-        serials = []
+        serials_raw = cfg.get("inverter_serial") or cfg.get("sunsynk_serial") or "2212176166"
+        serials = str(serials_raw).split(";")
+        mqtt_broker = cfg.get("mqtt_broker", "192.168.1.150")
+        mqtt_port = int(cfg.get("mqtt_port", 1883))
+        mqtt_topic = cfg.get("mqtt_topic", "sunsynk")
+        output_txt = cfg.get("output_txt", "sunsynk_text_dump.txt")
+        output_json = cfg.get("output_json", "sunsynk_from_text.json")
 
-        if os.path.isfile(config_file):
-            with open(config_file) as f:
-                cfg = json.load(f)
-            serials_raw = cfg.get("inverter_serial") or cfg.get("sunsynk_serial") or ""
-            serials = str(serials_raw).split(";")
-            log_lines.append(f"Loaded serials: {serials}")
-        else:
-            serials = ["2212176166"]
-            log_lines.append("Using fallback serials: ['2212176166']")
+        print("▶ Starting new Sunsynk fetch cycle...")
+        print(f"Using serials: {serials}")
+        print(f"MQTT: {mqtt_broker}:{mqtt_port}, topic={mqtt_topic}")
+        print(f"Outputs: txt={output_txt}, json={output_json}")
 
-        log_lines.append("🔑 Getting token...")
+        log_lines.append(f"Loaded serials: {serials}")
+
+        print("🔑 Getting token...")
         token = gettoken()
         log_lines.append("✅ Got token")
+        print("✅ Got token")
 
         for serial in serials:
             if not serial.strip():
                 continue
-            log_lines.append(f"\n=== Inverter {serial} ===")
-
+            print(f"=== Inverter {serial} ===")
             try:
                 data, out = capture_and_parse(GetInverterInfo, "inverter", token, serial)
-                flat_all.update(data); log_lines.extend(out)
-
+                flat_all.update(data); log_lines.extend(out); print("  ✔ InverterInfo fetched")
                 data, out = capture_and_parse(GetPvData, "pv", token, serial)
-                flat_all.update(data); log_lines.extend(out)
-
+                flat_all.update(data); log_lines.extend(out); print("  ✔ PVData fetched")
                 data, out = capture_and_parse(GetGridData, "grid", token, serial)
-                flat_all.update(data); log_lines.extend(out)
-
+                flat_all.update(data); log_lines.extend(out); print("  ✔ GridData fetched")
                 data, out = capture_and_parse(GetBatteryData, "battery", token, serial)
-                flat_all.update(data); log_lines.extend(out)
-
+                flat_all.update(data); log_lines.extend(out); print("  ✔ BatteryData fetched")
                 data, out = capture_and_parse(GetLoadData, "load", token, serial)
-                flat_all.update(data); log_lines.extend(out)
-
+                flat_all.update(data); log_lines.extend(out); print("  ✔ LoadData fetched")
                 data, out = capture_and_parse(GetOutputData, "output", token, serial)
-                flat_all.update(data); log_lines.extend(out)
-
+                flat_all.update(data); log_lines.extend(out); print("  ✔ OutputData fetched")
                 data, out = capture_and_parse(GetDCACTemp, "dcac", token, serial)
-                flat_all.update(data); log_lines.extend(out)
-
+                flat_all.update(data); log_lines.extend(out); print("  ✔ DCACTemp fetched")
                 data, out = capture_and_parse(GetInverterSettingsData, "inverterSettings", token, serial)
-                flat_all.update(data); log_lines.extend(out)
-
+                flat_all.update(data); log_lines.extend(out); print("  ✔ InverterSettings fetched")
             except Exception as e:
                 err = f"❌ Error while fetching data for {serial}: {e}"
                 log_lines.append(err)
+                print(err)
                 traceback.print_exc()
 
-        wrapped = {
-            "timestamp": datetime.now(timezone.utc).isoformat(),
-            **flat_all
-        }
+        wrapped = {"timestamp": datetime.now(timezone.utc).isoformat(), **flat_all}
 
-        # Write fresh outputs each cycle
-        with open("sunsynk_text_dump.txt", "w", encoding="utf-8") as lf:
+        out_txt_dir = os.path.dirname(output_txt)
+        if out_txt_dir:
+            os.makedirs(out_txt_dir, exist_ok=True)
+        out_json_dir = os.path.dirname(output_json)
+        if out_json_dir:
+            os.makedirs(out_json_dir, exist_ok=True)
+
+        with open(output_txt, "w", encoding="utf-8") as lf:
             lf.write("\n".join(log_lines))
+        print(f"💾 Wrote log to {output_txt}")
 
-        with open("sunsynk_from_text.json", "w", encoding="utf-8") as jf:
+        with open(output_json, "w", encoding="utf-8") as jf:
             json.dump(wrapped, jf, indent=2)
+        print(f"💾 Wrote JSON to {output_json}")
 
-        # --- Publish to MQTT broker ---
         try:
             client = mqtt.Client()
-            client.connect("192.168.1.150", 1883, 60)
-            client.publish("sunsynk", json.dumps(wrapped), qos=0, retain=True)
+            client.connect(mqtt_broker, mqtt_port, 60)
+            client.publish(mqtt_topic, json.dumps(wrapped), qos=0, retain=True)
             client.disconnect()
-            log_lines.append("✅ Published JSON to MQTT topic 'sunsynk' (retained)")
+            print(f"📡 Published JSON to MQTT {mqtt_broker}:{mqtt_port}/{mqtt_topic}")
         except Exception as e:
-            log_lines.append(f"⚠️ MQTT publish failed: {e}")
+            msg = f"⚠️ MQTT publish failed: {e}"
+            log_lines.append(msg)
+            print(msg)
 
     except Exception as e:
-        log_lines.append(f"❌ Fatal error in main(): {e}")
+        err = f"❌ Fatal error in main(): {e}"
+        log_lines.append(err)
+        print(err)
         traceback.print_exc()
 
-# --- Daemon loop every 300 seconds ---
+# --- Daemon loop with config reload ---
 
 if __name__ == "__main__":
+    # Initial load of options.json
+    default_options = "./data/options.json"
+    try:
+        with open(default_options) as f:
+            cfg = json.load(f)
+    except Exception:
+        cfg = {}
+
+    options_file = cfg.get("options_file", default_options)
+    loop_time = int(cfg.get("loop_time", 300))
+    print(f"⏱ Loop interval set to {loop_time} seconds")
+    print(f"⚙️ Options file: {options_file}")
+
     while True:
         try:
-            main()
-            print(f"Run completed at {datetime.now(timezone.utc).isoformat()}")
+            # Reload config each cycle
+            if os.path.isfile(options_file):
+                with open(options_file) as f:
+                    cfg = json.load(f)
+            else:
+                cfg = {}
+            loop_time = int(cfg.get("loop_time", 300))
+
+            main(cfg)
+            print(f"✅ Cycle finished at {datetime.now(timezone.utc).isoformat()}")
         except Exception as e:
             print(f"⚠️ Error in main loop: {e}")
-        time.sleep(300)
+        time.sleep(loop_time)
