@@ -3,7 +3,7 @@
   "sunsynk_user": "<YOUR_SUNSYNK_ID>",
   "sunsynk_pass": "<YOUR_SUNSYNK_PASSWORD",
   "inverter_serial": "<YOUR_INVERTER_SERIAL_NUMBER>",
-  "mqtt_broker": "YOUR_MQTT_BROKER_IP_ADDRESS>",
+  "mqtt_broker": "<YOUR_MQTT_BROKER_IP_ADDRESS>",
   "mqtt_port": 1883,
   "mqtt_topic": "sunsynk",
   "output_txt": "<YOUR_TEXT_DUMP_PATH>",
