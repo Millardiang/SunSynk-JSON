@@ -1,13 +1,14 @@
 [Unit]
-Description=Sunsynk Inverter Data Fetcher
+Description=Sunsynk Data Fetcher Service
 After=network.target
 
 [Service]
-Type=simple
-WorkingDirectory=/home/divum5/weewx-data/bin/user/sunsynk
-ExecStart=/home/divum5/weewx-venv/bin/python /home/divum5/weewx-data/bin/user/sunsynk/sunsynk.py
+ExecStart=/usr/bin/python3 /opt/sunsynk/sunsynk.py
+WorkingDirectory=/opt/sunsynk
 Restart=always
 RestartSec=10
+User=pi
+Group=pi
 
 [Install]
 WantedBy=multi-user.target
