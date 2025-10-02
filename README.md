@@ -1,7 +1,9 @@
 # Sunsynk Data Fetcher
 
 This project provides Python scripts for retrieving data from a **Sunsynk solar inverter** using the Sunsynk Cloud API.  
-It can output results as JSON and plain text files, and optionally publish data to an MQTT broker.
+It can output results as JSON and plain text files, and optionally publish data to an MQTT broker. 
+
+Please note that this code is only compatible with SunSynk inverters which use the Region 2 API.
 
 ---
 
