@@ -1,13 +1,13 @@
 {
   "API_Server": "api.sunsynk.net",
-  "sunsynk_user": "ianmillard@icloud.com",
-  "sunsynk_pass": "9zQusGdFb7G5oDt",
-  "inverter_serial": "2212176166",
-  "mqtt_broker": "192.168.1.148",
+  "sunsynk_user": "<YOUR_SUNSYNK_ID>",
+  "sunsynk_pass": "<YOUR_SUNSYNK_PASSWORD",
+  "inverter_serial": "<YOUR_INVERTER_SERIAL_NUMBER>",
+  "mqtt_broker": "YOUR_MQTT_BROKER_IP_ADDRESS>",
   "mqtt_port": 1883,
   "mqtt_topic": "sunsynk",
-  "output_txt": "/tmp/sunsynk/sunsynk_text_dump.txt",
-  "output_json": "/var/www/html/divumwx/jsondata/sunsynk.json",
+  "output_txt": "<YOUR_TEXT_DUMP_PATH>",
+  "output_json": "<YOUR_JSON_OUTPUT_PATH",
   "loop_time": 300,
-  "options_file": "/home/divum5/weewx-data/bin/user/sunsynk/data/options.json"
+  "options_file": "<YOUR_PATH_TO>/options.json"
 }
