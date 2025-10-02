@@ -1,96 +1,42 @@
-# WeeWX Sunsynk Extension
+# Sunsynk Data Fetcher
 
-A WeeWX 5.1 extension that integrates with **Sunsynk solar inverters**, pulling live data from the Sunsynk Cloud API and publishing it into:
-
-- Local JSON and text files (for dashboards such as [DivumWX](https://claydonsweather.org.uk))  
-- MQTT topics (for integration with Home Assistant, Node-RED, or other consumers)  
-- WeeWX reporting loop (for archive/loop services)
+This project provides Python scripts for retrieving data from a **Sunsynk solar inverter** using the Sunsynk Cloud API.  
+It can output results as JSON and plain text files, and optionally publish data to an MQTT broker.
 
 ---
 
 ## Contents
 
-- `sunsynk_get.py`  
-  Standalone utility for authenticating with the Sunsynk API and fetching inverter data.  
-  Useful for testing, cron jobs, or debugging.
+- **sunsynk_get.py**  
+  Standalone script that authenticates with the Sunsynk API and fetches inverter data once.  
+  Suitable for manual runs or cron jobs.
 
-- `sunsynk.py`  
-  WeeWX 5.1 **service** that integrates with the WeeWX engine.  
-  Runs on the configured loop interval and publishes inverter data.
+- **sunsynk.py**  
+  A looping script/service that runs continuously, fetching inverter data at a defined interval.  
+  Can write to JSON, text, and/or publish via MQTT.
 
-- `options.json`  
-  JSON configuration file with API credentials, MQTT broker settings, and file output paths.
+- **options.json**  
+  Configuration file containing API credentials, output paths, MQTT broker details, and polling interval.
 
 ---
 
 ## Requirements
 
-- **WeeWX 5.1+**  
-- **Python 3.9+**  
-- Python dependencies:
+- Python 3.9+  
+- Dependencies:
   - `requests`
   - `paho-mqtt`
 
 Install requirements:
 ```bash
-pip3 install requests paho-mqtt
+pip install requests paho-mqtt
 ```
-
----
-
-## Installation
-
-### Manual Install
-
-1. Copy the files into your WeeWX installation:
-   ```bash
-   cp sunsynk.py /home/weewx/bin/user/
-   cp sunsynk_get.py /home/weewx/bin/user/
-   cp options.json /home/weewx/etc/
-   ```
-
-2. Edit `options.json` with your credentials and paths.
-
-3. Edit `weewx.conf` and enable the service:
-
-   ```ini
-   [Engine]
-     [[Services]]
-       data_services = ..., user.sunsynk.Sunsynk
-   ```
-
-4. Restart WeeWX:
-   ```bash
-   sudo systemctl restart weewx
-   ```
-
----
-
-### Packaging with `weectl`
-
-To package as a `.zip` extension:
-
-1. Ensure you have:
-   - `install.py`  
-   - `bin/user/sunsynk.py`  
-   - `bin/user/sunsynk_get.py`  
-   - `skins/Sunsynk/options.json` (or your desired path)
-
-2. Create the extension archive:
-   ```bash
-   zip -r weewx-sunsynk.zip install.py bin/ skins/
-   ```
-
-3. Install with:
-   ```bash
-   weectl extension install weewx-sunsynk.zip
-   ```
 
 ---
 
 ## Configuration
 
-All runtime settings are in **`options.json`**. Example:
+Settings are stored in **`options.json`**. Example:
 
 ```json
 {
@@ -108,55 +54,53 @@ All runtime settings are in **`options.json`**. Example:
 }
 ```
 
+### Key Fields
+- **API_Server** – The Sunsynk Cloud API endpoint.  
+- **sunsynk_user / sunsynk_pass** – Your login credentials.  
+- **inverter_serial** – Serial number of your Sunsynk inverter.  
+- **mqtt_broker / mqtt_port / mqtt_topic** – MQTT broker settings if you want to publish.  
+- **output_txt / output_json** – File paths for plain text and JSON output.  
+- **loop_time** – Interval in seconds between API calls (`sunsynk.py` only).  
+- **options_file** – Path to the JSON configuration file.  
+
 ---
 
 ## Usage
 
-### Standalone Script
-
-Run directly:
+### One-time Data Fetch
+Run:
 ```bash
 python3 sunsynk_get.py
 ```
+- Fetches inverter data once.
+- Writes to `output_txt` and `output_json`.
 
-- Fetches inverter data once.  
-- Writes to the JSON/TXT paths defined in `options.json`.  
-- Exits after one run.
-
-### WeeWX Service
-
-When enabled in `weewx.conf`, the `Sunsynk` service will:
-
-- Poll the Sunsynk API every `loop_time` seconds.  
-- Publish results into:
-  - JSON output file
-  - Text dump file
-  - MQTT broker (if configured)
+### Continuous Polling
+Run:
+```bash
+python3 sunsynk.py
+```
+- Polls the inverter every `loop_time` seconds.
+- Writes updated output files.
+- Publishes to MQTT if configured.
 
 ---
 
 ## Output
 
-- **Text dump** (`output_txt`): Plain text with inverter metrics.  
-- **JSON** (`output_json`): Full structured inverter data.  
-- **MQTT**: Published messages under `mqtt_topic`.
+- **Text dump**: Simple key/value pairs in a plain text file.  
+- **JSON**: Structured inverter data for dashboards or downstream processing.  
+- **MQTT**: Published messages under the configured topic.  
 
 ---
 
 ## Troubleshooting
 
-- **No token in login response**:  
-  Check `sunsynk_user` / `sunsynk_pass` are correct.  
-  Ensure the inverter is linked to your account in Sunsynk Cloud.
-
-- **MQTT connection refused**:  
-  Verify `mqtt_broker`, `mqtt_port`, and network connectivity.
-
-- **File permission errors**:  
-  Ensure the WeeWX user (`weewx:weewx`) has write access to `output_txt` and `output_json` directories.
-
-- **Rate limits**:  
-  Sunsynk Cloud API may block too-frequent requests. Increase `loop_time`.
+- **Login fails**: Check your username/password and make sure your inverter is registered with the Sunsynk Cloud.  
+- **No data returned**: Verify the `inverter_serial`.  
+- **MQTT errors**: Ensure your broker is running and accessible.  
+- **Permission issues**: Make sure your user can write to the output paths.  
+- **Rate limits**: If you poll too often, the API may block requests. Increase `loop_time`.  
 
 ---
 
@@ -164,5 +108,4 @@ When enabled in `weewx.conf`, the `Sunsynk` service will:
 
 Copyright (C) 2025 Ian Millard  
 Licensed under the GNU General Public License v3.0 (GPL-3.0).  
-
-See [LICENSE](https://www.gnu.org/licenses/gpl-3.0.html) for details.
+See [LICENSE](https://www.gnu.org/licenses/gpl-3.0.html).
