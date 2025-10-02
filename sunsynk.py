@@ -4,6 +4,7 @@
 SolarSynkV3 daemon — fetches inverter data via sunsynk_get functions,
 writes log + JSON, publishes JSON to MQTT broker (retained),
 and repeats every loop_time seconds (default 300).
+Config is reloaded each cycle from options.json.
 
 (c) 2025 Ian Millard
 GNU GPL v3
@@ -32,18 +33,15 @@ from sunsynk_get import (
 ansi_escape = re.compile(r'\x1B\[[0-?]*[ -/]*[@-~]')
 
 def strip_ansi(text):
-    """Remove ANSI escape codes (colours, bold, etc.)."""
     return ansi_escape.sub('', text)
 
 def to_camel_case(s: str) -> str:
-    """Convert string to camelCase."""
     parts = re.split(r'[\s_/]+', s.strip())
     if not parts:
         return s
     return parts[0].lower() + ''.join(word.capitalize() for word in parts[1:])
 
 def normalise_key(key: str, section: str) -> str:
-    """Normalise key, camelCase, prefix with section."""
     prefixes = [
         "Inverter Setting ", "Inverter ",
         "PV ", "Grid ", "Battery ",
@@ -58,15 +56,10 @@ def normalise_key(key: str, section: str) -> str:
     return section_prefix + key[0].upper() + key[1:]
 
 def capture_and_parse(func, section_name, *args):
-    """
-    Run a sunsynk_get function that prints output.
-    Capture prints, strip ANSI codes, parse into a flat dict.
-    """
     buf = StringIO()
     with contextlib.redirect_stdout(buf):
         func(*args)
     raw_output = buf.getvalue()
-
     clean_output = strip_ansi(raw_output)
 
     parsed = {}
@@ -120,11 +113,8 @@ def main(cfg):
         print(f"MQTT: {mqtt_broker}:{mqtt_port}, topic={mqtt_topic}")
         print(f"Outputs: txt={output_txt}, json={output_json}")
 
-        log_lines.append(f"Loaded serials: {serials}")
-
         print("🔑 Getting token...")
         token = gettoken()
-        log_lines.append("✅ Got token")
         print("✅ Got token")
 
         for serial in serials:
@@ -134,41 +124,31 @@ def main(cfg):
 
             try:
                 data, out = capture_and_parse(GetInverterInfo, "inverter", token, serial)
-                flat_all.update(data); log_lines.extend(out)
-                print("  ✔ InverterInfo fetched")
+                flat_all.update(data)
 
                 data, out = capture_and_parse(GetPvData, "pv", token, serial)
-                flat_all.update(data); log_lines.extend(out)
-                print("  ✔ PVData fetched")
+                flat_all.update(data)
 
                 data, out = capture_and_parse(GetGridData, "grid", token, serial)
-                flat_all.update(data); log_lines.extend(out)
-                print("  ✔ GridData fetched")
+                flat_all.update(data)
 
                 data, out = capture_and_parse(GetBatteryData, "battery", token, serial)
-                flat_all.update(data); log_lines.extend(out)
-                print("  ✔ BatteryData fetched")
+                flat_all.update(data)
 
                 data, out = capture_and_parse(GetLoadData, "load", token, serial)
-                flat_all.update(data); log_lines.extend(out)
-                print("  ✔ LoadData fetched")
+                flat_all.update(data)
 
                 data, out = capture_and_parse(GetOutputData, "output", token, serial)
-                flat_all.update(data); log_lines.extend(out)
-                print("  ✔ OutputData fetched")
+                flat_all.update(data)
 
                 data, out = capture_and_parse(GetDCACTemp, "dcac", token, serial)
-                flat_all.update(data); log_lines.extend(out)
-                print("  ✔ DCACTemp fetched")
+                flat_all.update(data)
 
                 data, out = capture_and_parse(GetInverterSettingsData, "inverterSettings", token, serial)
-                flat_all.update(data); log_lines.extend(out)
-                print("  ✔ InverterSettings fetched")
+                flat_all.update(data)
 
             except Exception as e:
-                err = f"❌ Error while fetching data for {serial}: {e}"
-                log_lines.append(err)
-                print(err)
+                print(f"❌ Error while fetching data for {serial}: {e}")
                 traceback.print_exc()
 
         wrapped = {
@@ -185,7 +165,6 @@ def main(cfg):
         if out_json_dir:
             os.makedirs(out_json_dir, exist_ok=True)
 
-        # Write outputs
         with open(output_txt, "w", encoding="utf-8") as lf:
             lf.write("\n".join(log_lines))
         print(f"💾 Wrote log to {output_txt}")
@@ -194,7 +173,6 @@ def main(cfg):
             json.dump(wrapped, jf, indent=2)
         print(f"💾 Wrote JSON to {output_json}")
 
-        # Publish to MQTT
         try:
             client = mqtt.Client()
             client.connect(mqtt_broker, mqtt_port, 60)
@@ -202,34 +180,31 @@ def main(cfg):
             client.disconnect()
             print(f"📡 Published JSON to MQTT {mqtt_broker}:{mqtt_port}/{mqtt_topic}")
         except Exception as e:
-            msg = f"⚠️ MQTT publish failed: {e}"
-            log_lines.append(msg)
-            print(msg)
+            print(f"⚠️ MQTT publish failed: {e}")
 
     except Exception as e:
-        err = f"❌ Fatal error in main(): {e}"
-        log_lines.append(err)
-        print(err)
+        print(f"❌ Fatal error in main(): {e}")
         traceback.print_exc()
 
-# --- Daemon loop with configurable interval ---
+# --- Daemon loop with config reload each cycle ---
 
 if __name__ == "__main__":
-    # Load config once to get loop_time
-    config_file = "/var/www/html/divumwx/jsondata/options.json"
-    if os.path.isfile(config_file):
-        with open(config_file) as f:
-            cfg = json.load(f)
-    else:
-        cfg = {}
-
-    loop_time = int(cfg.get("loop_time", 300))
-    print(f"⏱ Loop interval set to {loop_time} seconds")
-
     while True:
         try:
+            config_file = "/var/www/html/divumwx/jsondata/options.json"
+            if os.path.isfile(config_file):
+                with open(config_file) as f:
+                    cfg = json.load(f)
+            else:
+                cfg = {}
+
+            loop_time = int(cfg.get("loop_time", 300))
+            print(f"⏱ Loop interval set to {loop_time} seconds")
+
             main(cfg)
             print(f"✅ Cycle finished at {datetime.now(timezone.utc).isoformat()}")
+
         except Exception as e:
             print(f"⚠️ Error in main loop: {e}")
+
         time.sleep(loop_time)
