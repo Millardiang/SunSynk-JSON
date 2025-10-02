@@ -1,30 +1,35 @@
-# Sunsynk Data Fetcher
+# ⚡ Sunsynk Data Fetcher
 
 This project provides Python scripts for retrieving data from a **Sunsynk solar inverter** using the Sunsynk Cloud API.  
-It can output results as JSON and plain text files, and optionally publish data to an MQTT broker. 
+It can output results as JSON and plain text files, and optionally publish data to an MQTT broker.  
 
-Please note that this code is only compatible with SunSynk inverters which use the Region 2 API.
-
----
-
-## Contents
-
-- **sunsynk_get.py**  
-  Standalone script that authenticates with the Sunsynk API and fetches inverter data once.  
-  Suitable for manual runs or cron jobs.
-
-- **sunsynk.py**  
-  A looping script/service that runs continuously, fetching inverter data at a defined interval.  
-  Can write to JSON, text, and/or publish via MQTT.
-
-- **options.json**  
-  Configuration file containing API credentials, output paths, MQTT broker details, and polling interval.
+⚠️ **Note**: This code is only compatible with SunSynk inverters which use the **Region 2 API**.
 
 ---
 
-## Requirements
+## 📂 File Layout
 
-- Python 3.9+  
+```
+sunsynk/
+├── sunsynk_get.py       # One-time fetch script
+├── sunsynk.py           # Continuous looping fetcher
+├── options.json         # Configuration file
+└── README.md            # Documentation
+```
+
+---
+
+## 📜 Contents
+
+- **sunsynk_get.py** – One-off data grab for manual use or cron jobs.  
+- **sunsynk.py** – Continuous looping fetcher, outputs JSON/TXT, can publish via MQTT.  
+- **options.json** – Stores API credentials, broker details, and polling settings.  
+
+---
+
+## 🛠 Requirements
+
+- Python **3.9+**  
 - Dependencies:
   - `requests`
   - `paho-mqtt`
@@ -36,9 +41,9 @@ pip install requests paho-mqtt
 
 ---
 
-## Configuration
+## ⚙️ Configuration
 
-Settings are stored in **`options.json`**. Example:
+All settings are stored in **`options.json`**. Example:
 
 ```json
 {
@@ -56,57 +61,142 @@ Settings are stored in **`options.json`**. Example:
 }
 ```
 
-### Key Fields
-- **API_Server** – The Sunsynk Cloud API endpoint.  
-- **sunsynk_user / sunsynk_pass** – Your login credentials.  
-- **inverter_serial** – Serial number of your Sunsynk inverter.  
-- **mqtt_broker / mqtt_port / mqtt_topic** – MQTT broker settings if you want to publish.  
-- **output_txt / output_json** – File paths for plain text and JSON output.  
-- **loop_time** – Interval in seconds between API calls (`sunsynk.py` only).  
+🔑 **Key Fields**  
+- **API_Server** – Sunsynk Cloud API endpoint.  
+- **sunsynk_user / sunsynk_pass** – Login credentials.  
+- **inverter_serial** – Serial number of your inverter.  
+- **mqtt_broker / mqtt_port / mqtt_topic** – MQTT broker settings.  
+- **output_txt / output_json** – Output file paths.  
+- **loop_time** – Interval between API calls (for `sunsynk.py`).  
 - **options_file** – Path to the JSON configuration file.  
 
 ---
 
-## Usage
+## ▶️ Usage
 
 ### One-time Data Fetch
-Run:
 ```bash
 python3 sunsynk_get.py
 ```
-- Fetches inverter data once.
-- Writes to `output_txt` and `output_json`.
+✅ Fetches inverter data once → outputs JSON + TXT.
 
 ### Continuous Polling
-Run:
 ```bash
 python3 sunsynk.py
 ```
-- Polls the inverter every `loop_time` seconds.
-- Writes updated output files.
-- Publishes to MQTT if configured.
+✅ Polls every `loop_time` seconds → updates files + publishes to MQTT.  
 
 ---
 
-## Output
+## 🚀 Installation
 
-- **Text dump**: Simple key/value pairs in a plain text file.  
-- **JSON**: Structured inverter data for dashboards or downstream processing.  
-- **MQTT**: Published messages under the configured topic.  
+### 1. Place Files
+```bash
+sudo mkdir -p /opt/sunsynk
+sudo cp sunsynk.py sunsynk_get.py options.json /opt/sunsynk/
+```
+
+### 2. Install Dependencies
+```bash
+pip install requests paho-mqtt
+```
+
+### 3. Test Manually
+```bash
+cd /opt/sunsynk
+python3 sunsynk_get.py
+python3 sunsynk.py
+```
+
+### 4. Create a Systemd Service
+Create `/etc/systemd/system/sunsynk.service`:
+
+```ini
+[Unit]
+Description=Sunsynk Data Fetcher Service
+After=network.target
+
+[Service]
+ExecStart=/usr/bin/python3 /opt/sunsynk/sunsynk.py
+WorkingDirectory=/opt/sunsynk
+Restart=always
+RestartSec=10
+User=pi
+Group=pi
+
+[Install]
+WantedBy=multi-user.target
+```
+
+Enable and start:
+```bash
+sudo systemctl daemon-reload
+sudo systemctl enable sunsynk.service
+sudo systemctl start sunsynk.service
+```
+
+Check status/logs:
+```bash
+systemctl status sunsynk.service
+journalctl -u sunsynk.service -f
+```
 
 ---
 
-## Troubleshooting
+## 🗺 Data Flow Map
 
-- **Login fails**: Check your username/password and make sure your inverter is registered with the Sunsynk Cloud.  
-- **No data returned**: Verify the `inverter_serial`.  
-- **MQTT errors**: Ensure your broker is running and accessible.  
-- **Permission issues**: Make sure your user can write to the output paths.  
-- **Rate limits**: If you poll too often, the API may block requests. Increase `loop_time`.  
+```text
+            +-------------------+
+            |   options.json    |
+            | (credentials, cfg)|
+            +-------------------+
+                      |
+     ---------------------------------------
+     |                                     |
++---------------+                 +----------------+
+| sunsynk_get.py|   one-time fetch|   sunsynk.py   |  continuous loop
++---------------+                 +----------------+
+     |                                     |
+     v                                     v
++-------------------+              +-------------------+
+| sunsynk_text_dump |              | sunsynk_text_dump |
+|   (plain text)    |              |   (plain text)    |
++-------------------+              +-------------------+
+     |                                     |
+     v                                     v
++-------------------+              +-------------------+
+|   sunsynk.json    |              |   sunsynk.json    |
+|  (structured data)|              |  (structured data)|
++-------------------+              +-------------------+
+                                           |
+                                           v
+                                 +-------------------+
+                                 |    MQTT Broker    |
+                                 | (optional publish)|
+                                 +-------------------+
+```
 
 ---
 
-## License
+## 📤 Output
+
+- **Text dump** – Key/value pairs (`output_txt`).  
+- **JSON** – Structured inverter data (`output_json`).  
+- **MQTT** – Published messages (if broker enabled).  
+
+---
+
+## ❗ Troubleshooting
+
+- **Login fails** → Check username/password, ensure inverter is registered in Sunsynk Cloud.  
+- **No data returned** → Verify `inverter_serial`.  
+- **MQTT errors** → Check broker connection and firewall.  
+- **Permission issues** → Ensure user can write to output paths.  
+- **Rate limits** → Increase `loop_time` to avoid API blocks.  
+
+---
+
+## 📜 License
 
 Copyright (C) 2025 Ian Millard  
 Licensed under the GNU General Public License v3.0 (GPL-3.0).  
