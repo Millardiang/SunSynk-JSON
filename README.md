@@ -50,14 +50,14 @@ All settings are stored in **`options.json`**. Example:
   "API_Server": "api.sunsynk.net",
   "sunsynk_user": "your_username",
   "sunsynk_pass": "your_password",
-  "inverter_serial": "1234567890",
-  "mqtt_broker": "127.0.0.1",
+  "inverter_serial": "your_inverter_serial_number",
+  "mqtt_broker": "your_mqtt_broker_IP_address",
   "mqtt_port": 1883,
   "mqtt_topic": "sunsynk",
   "output_txt": "/tmp/sunsynk/sunsynk_text_dump.txt",
-  "output_json": "/var/www/html/divumwx/jsondata/sunsynk.json",
+  "output_json": "/var/www/html/jsondata/sunsynk.json",
   "loop_time": 300,
-  "options_file": "/var/www/html/divumwx/jsondata/options.json"
+  "options_file": "/var/www/html/jsondata/options.json"
 }
 ```
 
